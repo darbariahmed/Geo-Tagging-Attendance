@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Field Attendance Tracker</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --blue: #0b5ed7;
+    --blue-dark: #084298;
+    --bg: #f4f7fb;
+    --white: #ffffff;
+    --border: #d7e0ea;
+    --text: #1b2733;
+    --muted: #6b7a8d;
+    --green: #1a8f4c;
+    --red: #c0392b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  .topbar {
+    background: var(--blue);
+    color: white;
+    padding: 14px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .topbar h1 { font-size: 18px; margin: 0; }
+  .topbar .who { font-size: 13px; opacity: 0.9; }
+  .btn {
+    background: var(--blue);
+    color: white;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .btn.secondary { background: white; color: var(--blue); border: 1px solid var(--blue); }
+  .btn.danger { background: var(--red); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .container { max-width: 720px; margin: 0 auto; padding: 20px; }
+  .card {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .card h2 { font-size: 16px; margin-top: 0; color: var(--blue-dark); }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; margin-top: 12px; }
+  input, select {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+  }
+  .status-pill {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .pill-in { background: #e6f6ec; color: var(--green); }
+  .pill-out { background: #fdeaea; color: var(--red); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .tab { padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 14px; background: white; border: 1px solid var(--border); }
+  .tab.active { background: var(--blue); color: white; border-color: var(--blue); }
+  .hidden { display: none !important; }
+  .muted { color: var(--muted); font-size: 13px; }
+  #loginScreen { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); }
+  .login-card { width: 340px; }
+  .error-text { color: var(--red); font-size: 13px; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div class="card login-card">
+    <h2>Field Attendance Login</h2>
+    <label>Email</label>
+    <input id="login-email" type="text" placeholder="you@tns-staff.com" />
+    <label>Password</label>
+    <input id="login-password" type="password" placeholder="Enter password" />
+    <button class="btn" id="login-btn" style="width:100%;margin-top:16px;">Log in</button>
+    <p class="error-text hidden" id="login-error"></p>
+  </div>
+</div>
+
+<div id="mainApp" class="hidden">
+  <div class="topbar">
+    <h1>Field Attendance Tracker</h1>
+    <div>
+      <span class="who" id="who-label"></span>
+      <button class="btn secondary" id="logout-btn" style="margin-left:10px;">Log out</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="tabs">
+      <div class="tab active" id="tab-checkin">Check In/Out</div>
+      <div class="tab" id="tab-admin">Admin Dashboard</div>
+    </div>
+
+    <!-- CHECK IN/OUT VIEW -->
+    <div id="view-checkin">
+      <div class="card">
+        <h2>Your Status</h2>
+        <p id="current-status" class="muted">Loading...</p>
+      </div>
+
+      <div class="card" id="checkin-card">
+        <h2>Check In</h2>
+        <label>Select Campus / Site</label>
+        <select id="site-select"></select>
+        <button class="btn" id="checkin-btn" style="width:100%;margin-top:16px;">📍 Check In Now</button>
+        <p class="muted" id="checkin-msg"></p>
+      </div>
+
+      <div class="card hidden" id="checkout-card">
+        <h2>Check Out</h2>
+        <p class="muted">You are checked in at <span id="checked-in-site"></span> since <span id="checked-in-time"></span></p>
+        <button class="btn danger" id="checkout-btn" style="width:100%;margin-top:10px;">📍 Check Out Now</button>
+        <p class="muted" id="checkout-msg"></p>
+      </div>
+
+      <div class="card">
+        <h2>Your Recent Attendance</h2>
+        <table>
+          <thead><tr><th>Site</th><th>In</th><th>Out</th><th>Status</th></tr></thead>
+          <tbody id="my-logs-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ADMIN DASHBOARD VIEW -->
+    <div id="view-admin" class="hidden">
+      <div class="card">
+        <h2>All Employees — Attendance Log</h2>
+        <label>Filter by employee</label>
+        <select id="filter-employee"><option value="">All employees</option></select>
+        <table style="margin-top:14px;">
+          <thead><tr><th>Employee</th><th>Site</th><th>In</th><th>Out</th><th>Within 50m?</th></tr></thead>
+          <tbody id="admin-logs-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = "https://vlykgotphlxabyrczmrx.supabase.co";
+const SUPABASE_KEY = "sb_publishable_WLYizEcCQ0XnhT9WzHLkrQ_fo5nGCrs";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let currentEmployee = null;
+let currentUser = null;
+let openLog = null;
+
+// ---------- LOGIN ----------
+document.getElementById('login-btn').addEventListener('click', async () => {
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errorEl = document.getElementById('login-error');
+  errorEl.classList.add('hidden');
+
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) {
+    errorEl.textContent = error.message;
+    errorEl.classList.remove('hidden');
+    return;
+  }
+  currentUser = data.user;
+  await afterLogin();
+});
+
+document.getElementById('logout-btn').addEventListener('click', async () => {
+  await sb.auth.signOut();
+  location.reload();
+});
+
+async function afterLogin() {
+  // find matching employee record
+  const { data: emp, error: empErr } = await sb
+    .from('attendance_employees')
+    .select('*')
+    .eq('auth_user_id', currentUser.id)
+    .maybeSingle();
+
+  if (empErr || !emp) {
+    document.getElementById('login-error').textContent = "No employee record linked to this login. Ask admin to link your account.";
+    document.getElementById('login-error').classList.remove('hidden');
+    return;
+  }
+  currentEmployee = emp;
+
+  document.getElementById('loginScreen').classList.add('hidden');
+  document.getElementById('mainApp').classList.remove('hidden');
+  document.getElementById('who-label').textContent = `${emp.full_name} — ${emp.role}`;
+
+  await loadSites();
+  await refreshStatus();
+  await loadMyLogs();
+  await loadAdminFilters();
+  await loadAdminLogs();
+}
+
+// ---------- SITES ----------
+async function loadSites() {
+  const { data: sites } = await sb.from('attendance_sites').select('*').order('site_name');
+  const sel = document.getElementById('site-select');
+  sel.innerHTML = '';
+  (sites || []).forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.id;
+    opt.textContent = s.site_name;
+    sel.appendChild(opt);
+  });
+}
+
+// ---------- GEOLOCATION HELPER ----------
+function getLocation() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) { reject(new Error('Geolocation not supported on this device/browser')); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      err => reject(err),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  });
+}
+
+// ---------- STATUS / CHECK IN / CHECK OUT ----------
+async function refreshStatus() {
+  const { data: logs } = await sb
+    .from('attendance_logs')
+    .select('*, attendance_sites(site_name)')
+    .eq('employee_id', currentEmployee.id)
+    .is('check_out_time', null)
+    .order('check_in_time', { ascending: false })
+    .limit(1);
+
+  const statusEl = document.getElementById('current-status');
+  if (logs && logs.length > 0) {
+    openLog = logs[0];
+    statusEl.innerHTML = `<span class="status-pill pill-in">Checked In</span>`;
+    document.getElementById('checkin-card').classList.add('hidden');
+    document.getElementById('checkout-card').classList.remove('hidden');
+    document.getElementById('checked-in-site').textContent = openLog.attendance_sites ? openLog.attendance_sites.site_name : '—';
+    document.getElementById('checked-in-time').textContent = new Date(openLog.check_in_time).toLocaleString();
+  } else {
+    openLog = null;
+    statusEl.innerHTML = `<span class="status-pill pill-out">Not Checked In</span>`;
+    document.getElementById('checkin-card').classList.remove('hidden');
+    document.getElementById('checkout-card').classList.add('hidden');
+  }
+}
+
+document.getElementById('checkin-btn').addEventListener('click', async () => {
+  const msg = document.getElementById('checkin-msg');
+  msg.textContent = 'Getting your location...';
+  try {
+    const loc = await getLocation();
+    const siteId = document.getElementById('site-select').value;
+    const { error } = await sb.from('attendance_logs').insert({
+      employee_id: currentEmployee.id,
+      site_id: siteId,
+      check_in_time: new Date().toISOString(),
+      check_in_lat: loc.lat,
+      check_in_lng: loc.lng,
+      synced_at: new Date().toISOString()
+    });
+    if (error) throw error;
+    msg.textContent = 'Checked in successfully!';
+    await refreshStatus();
+    await loadMyLogs();
+    await loadAdminLogs();
+  } catch (e) {
+    msg.textContent = 'Error: ' + e.message;
+  }
+});
+
+document.getElementById('checkout-btn').addEventListener('click', async () => {
+  const msg = document.getElementById('checkout-msg');
+  msg.textContent = 'Getting your location...';
+  try {
+    const loc = await getLocation();
+    const { error } = await sb.from('attendance_logs')
+      .update({
+        check_out_time: new Date().toISOString(),
+        check_out_lat: loc.lat,
+        check_out_lng: loc.lng
+      })
+      .eq('id', openLog.id);
+    if (error) throw error;
+    msg.textContent = 'Checked out successfully!';
+    await refreshStatus();
+    await loadMyLogs();
+    await loadAdminLogs();
+  } catch (e) {
+    msg.textContent = 'Error: ' + e.message;
+  }
+});
+
+// ---------- MY LOGS ----------
+async function loadMyLogs() {
+  const { data: logs } = await sb
+    .from('attendance_logs')
+    .select('*, attendance_sites(site_name)')
+    .eq('employee_id', currentEmployee.id)
+    .order('check_in_time', { ascending: false })
+    .limit(10);
+
+  const body = document.getElementById('my-logs-body');
+  body.innerHTML = '';
+  (logs || []).forEach(l => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${l.attendance_sites ? l.attendance_sites.site_name : '—'}</td>
+      <td>${l.check_in_time ? new Date(l.check_in_time).toLocaleString() : '—'}</td>
+      <td>${l.check_out_time ? new Date(l.check_out_time).toLocaleString() : '—'}</td>
+      <td>${l.is_within_geofence === true ? '✅ Within 50m' : (l.is_within_geofence === false ? '⚠️ Outside 50m' : '—')}</td>
+    `;
+    body.appendChild(tr);
+  });
+}
+
+// ---------- ADMIN DASHBOARD ----------
+async function loadAdminFilters() {
+  const { data: employees } = await sb.from('attendance_employees').select('*').order('full_name');
+  const sel = document.getElementById('filter-employee');
+  sel.innerHTML = '<option value="">All employees</option>';
+  (employees || []).forEach(e => {
+    const opt = document.createElement('option');
+    opt.value = e.id;
+    opt.textContent = e.full_name;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener('change', loadAdminLogs);
+}
+
+async function loadAdminLogs() {
+  const filterId = document.getElementById('filter-employee').value;
+  let query = sb
+    .from('attendance_logs')
+    .select('*, attendance_employees(full_name), attendance_sites(site_name)')
+    .order('check_in_time', { ascending: false })
+    .limit(50);
+
+  if (filterId) query = query.eq('employee_id', filterId);
+
+  const { data: logs } = await query;
+  const body = document.getElementById('admin-logs-body');
+  body.innerHTML = '';
+  (logs || []).forEach(l => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${l.attendance_employees ? l.attendance_employees.full_name : '—'}</td>
+      <td>${l.attendance_sites ? l.attendance_sites.site_name : '—'}</td>
+      <td>${l.check_in_time ? new Date(l.check_in_time).toLocaleString() : '—'}</td>
+      <td>${l.check_out_time ? new Date(l.check_out_time).toLocaleString() : '—'}</td>
+      <td>${l.is_within_geofence === true ? '✅' : (l.is_within_geofence === false ? '⚠️' : '—')}</td>
+    `;
+    body.appendChild(tr);
+  });
+}
+
+// ---------- TABS ----------
+document.getElementById('tab-checkin').addEventListener('click', () => {
+  document.getElementById('tab-checkin').classList.add('active');
+  document.getElementById('tab-admin').classList.remove('active');
+  document.getElementById('view-checkin').classList.remove('hidden');
+  document.getElementById('view-admin').classList.add('hidden');
+});
+document.getElementById('tab-admin').addEventListener('click', () => {
+  document.getElementById('tab-admin').classList.add('active');
+  document.getElementById('tab-checkin').classList.remove('active');
+  document.getElementById('view-admin').classList.remove('hidden');
+  document.getElementById('view-checkin').classList.add('hidden');
+  loadAdminLogs();
+});
+
+// ---------- CHECK EXISTING SESSION ON LOAD ----------
+(async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) {
+    currentUser = session.user;
+    await afterLogin();
+  }
+})();
+</script>
+
+</body>
+</html>
