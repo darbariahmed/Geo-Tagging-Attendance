@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Field Attendance Tracker</title>
+  <link rel="icon" type="image/png" href="icon-192.png" />
+  <link rel="apple-touch-icon" href="icon-180.png" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@4.2.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@5.0.8/dist/jspdf.plugin.autotable.min.js"></script>
+<style>
+  :root {
+    --blue: #0b5ed7;
+    --blue-dark: #084298;
+    --bg: #f4f7fb;
+    --white: #ffffff;
+    --border: #d7e0ea;
+    --text: #1b2733;
+    --muted: #6b7a8d;
+    --green: #1a8f4c;
+    --red: #c0392b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  .topbar {
+    background: var(--blue);
+    color: white;
+    padding: 14px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .topbar h1 { font-size: 18px; margin: 0; }
+  .topbar .who { font-size: 13px; opacity: 0.9; }
+  .btn {
+    background: var(--blue);
+    color: white;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .btn.secondary { background: white; color: var(--blue); border: 1px solid var(--blue); }
+  .btn.danger { background: var(--red); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .container { max-width: 720px; margin: 0 auto; padding: 20px; }
+  .card {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .card h2 { font-size: 16px; margin-top: 0; color: var(--blue-dark); }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; margin-top: 12px; }
+  input, select {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+  }
+  .status-pill {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .pill-in { background: #e6f6ec; color: var(--green); }
+  .pill-out { background: #fdeaea; color: var(--red); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .tab { padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 14px; background: white; border: 1px solid var(--border); }
+  .tab.active { background: var(--blue); color: white; border-color: var(--blue); }
+  .hidden { display: none !important; }
+  .muted { color: var(--muted); font-size: 13px; }
+  #loginScreen { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); }
+  .login-card { width: 340px; }
+  .error-text { color: var(--red); font-size: 13px; margin-top: 8px; }
+  .loc-row { padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .loc-row:last-child { border-bottom: none; }
+  .loc-site { color: var(--green); font-weight: 600; }
+  .loc-out { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div class="card login-card">
+    <h2>Field Attendance Login</h2>
+    <label>Email</label>
+    <input id="login-email" type="text" placeholder="you@tns-staff.com" />
+    <label>Password</label>
+    <input id="login-password" type="password" placeholder="Enter password" />
+    <button class="btn" id="login-btn" style="width:100%;margin-top:16px;">Log in</button>
+    <p class="error-text hidden" id="login-error"></p>
+  </div>
+</div>
+
+<div id="mainApp" class="hidden">
+  <div class="topbar">
+    <h1>Field Attendance Tracker</h1>
+    <div>
+      <span class="who" id="who-label"></span>
+      <button class="btn secondary" id="logout-btn" style="margin-left:10px;">Log out</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="tabs">
+      <div class="tab active" id="tab-checkin">Check In/Out</div>
+      <div class="tab" id="tab-admin">Admin Dashboard</div>
+    </div>
+
+    <!-- CHECK IN/OUT VIEW -->
+    <div id="view-checkin">
+      <div class="card">
+        <h2>Your Status</h2>
+        <p id="current-status" class="muted">Loading...</p>
+      </div>
+
+      <div class="card" id="checkin-card">
+        <h2>Check In</h2>
+        <p class="muted" id="detected-site-msg"></p>
+        <label>Select Campus / Site</label>
+        <select id="site-select"></select>
+        <button class="btn" id="checkin-btn" style="width:100%;margin-top:16px;">📍 Check In Now</button>
+        <p class="muted" id="checkin-msg"></p>
+      </div>
+
+      <div class="card hidden" id="checkout-card">
+        <h2>Check Out</h2>
+        <p class="muted">You are checked in at <span id="checked-in-site"></span> since <span id="checked-in-time"></span></p>
+        <button class="btn danger" id="checkout-btn" style="width:100%;margin-top:10px;">📍 Check Out Now</button>
+        <p class="muted" id="checkout-msg"></p>
+      </div>
+
+      <div class="card">
+        <h2>Your Recent Attendance</h2>
+        <table>
+          <thead><tr><th>Site</th><th>In</th><th>Out</th><th>Status</th></tr></thead>
+          <tbody id="my-logs-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ADMIN DASHBOARD VIEW -->
+    <div id="view-admin" class="hidden">
+      <div class="card">
+        <h2>Current Locations</h2>
+        <p class="muted" style="margin-top:-6px;">Where each employee is right now, based on their latest check-in.</p>
+        <div id="current-locations-list">Loading...</div>
+      </div>
+
+      <div class="card">
+        <h2>All Employees — Attendance Log</h2>
+        <label>Filter by employee</label>
+        <select id="filter-employee"><option value="">All employees</option></select>
+        <table style="margin-top:14px;">
+          <thead><tr><th>Employee</th><th>Site</th><th>In</th><th>Out</th><th>Within 50m?</th></tr></thead>
+          <tbody id="admin-logs-body"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>Export Attendance to PDF</h2>
+        <p class="muted" style="margin-top:-6px;">Pick a period and download a printable report. Pay cycle runs from the 21st to the 20th.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+          <button class="btn secondary" id="cycle-this" type="button">This pay cycle</button>
+          <button class="btn secondary" id="cycle-last" type="button">Last pay cycle</button>
+        </div>
+        <label>From</label>
+        <input type="date" id="export-from" />
+        <label>To</label>
+        <input type="date" id="export-to" />
+        <label>Employee</label>
+        <select id="export-employee"><option value="">All employees</option></select>
+        <button class="btn" id="export-pdf-btn" type="button" style="width:100%;margin-top:16px;">&#11015; Download PDF</button>
+        <p class="muted" id="export-msg"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = "https://vlykgotphlxabyrczmrx.supabase.co";
+const SUPABASE_KEY = "sb_publishable_WLYizEcCQ0XnhT9WzHLkrQ_fo5nGCrs";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let currentEmployee = null;
+let currentUser = null;
+let openLog = null;
+let allSites = [];
+const DETECTION_RADIUS_METERS = 300;
+
+// ---------- LOGIN ----------
+document.getElementById('login-btn').addEventListener('click', async () => {
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errorEl = document.getElementById('login-error');
+  errorEl.classList.add('hidden');
+
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) {
+    errorEl.textContent = error.message;
+    errorEl.classList.remove('hidden');
+    return;
+  }
+  currentUser = data.user;
+  await afterLogin();
+});
+
+document.getElementById('logout-btn').addEventListener('click', async () => {
+  await sb.auth.signOut();
+  location.reload();
+});
+
+async function afterLogin() {
+  // find matching employee record
+  const { data: emp, error: empErr } = await sb
+    .from('attendance_employees')
+    .select('*')
+    .eq('auth_user_id', currentUser.id)
+    .maybeSingle();
+
+  if (empErr || !emp) {
+    document.getElementById('login-error').textContent = "No employee record linked to this login. Ask admin to link your account.";
+    document.getElementById('login-error').classList.remove('hidden');
+    return;
+  }
+  currentEmployee = emp;
+
+  document.getElementById('loginScreen').classList.add('hidden');
+  document.getElementById('mainApp').classList.remove('hidden');
+  document.getElementById('who-label').textContent = `${emp.full_name} — ${emp.role}`
+    if (!emp.is_admin) { document.getElementById('tab-admin').style.display = 'none'; };
+
+  await loadSites();
+  await refreshStatus();
+  await loadMyLogs();
+  await loadAdminFilters();
+  await loadAdminLogs();
+  await loadCurrentLocations();
+}
+
+// ---------- SITES ----------
+async function loadSites() {
+  const { data: sites } = await sb.from('attendance_sites').select('*').order('site_name');
+  allSites = sites || [];
+  const sel = document.getElementById('site-select');
+  sel.innerHTML = '';
+  allSites.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.id;
+    opt.textContent = s.site_name;
+    sel.appendChild(opt);
+  });
+  await detectNearbySite();
+}
+
+// ---------- DISTANCE HELPER (Haversine formula) ----------
+function distanceMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000; // Earth radius in meters
+  const toRad = deg => deg * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+// ---------- AUTO-DETECT NEARBY CAMPUS ----------
+async function detectNearbySite() {
+  const msgEl = document.getElementById('detected-site-msg');
+  if (!msgEl) return;
+  if (!allSites.length) { msgEl.textContent = ''; return; }
+
+  msgEl.textContent = 'Checking your location...';
+  try {
+    const loc = await getLocation();
+    let nearest = null;
+    let nearestDist = Infinity;
+
+    allSites.forEach(s => {
+      if (s.latitude == null || s.longitude == null) return;
+      const d = distanceMeters(loc.lat, loc.lng, s.latitude, s.longitude);
+      if (d < nearestDist) { nearestDist = d; nearest = s; }
+    });
+
+    if (nearest && nearestDist <= DETECTION_RADIUS_METERS) {
+      document.getElementById('site-select').value = nearest.id;
+      msgEl.innerHTML = `📍 You appear to be near <strong>${nearest.site_name}</strong> (~${Math.round(nearestDist)}m away) — confirmed below. Change it if this isn't right.`;
+    } else {
+      msgEl.textContent = 'Could not confirm a nearby campus — please select one manually below.';
+    }
+  } catch (e) {
+    msgEl.textContent = 'Location not available yet — please select your campus manually.';
+  }
+}
+
+// ---------- GEOLOCATION HELPER ----------
+function getLocation() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) { reject(new Error('Geolocation not supported on this device/browser')); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      err => reject(err),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  });
+}
+
+// ---------- STATUS / CHECK IN / CHECK OUT ----------
+async function refreshStatus() {
+  const { data: logs } = await sb
+    .from('attendance_logs')
+    .select('*, attendance_sites(site_name)')
+    .eq('employee_id', currentEmployee.id)
+    .is('check_out_time', null)
+    .order('check_in_time', { ascending: false })
+    .limit(1);
+
+  const statusEl = document.getElementById('current-status');
+  if (logs && logs.length > 0) {
+    openLog = logs[0];
+    statusEl.innerHTML = `<span class="status-pill pill-in">Checked In</span>`;
+    document.getElementById('checkin-card').classList.add('hidden');
+    document.getElementById('checkout-card').classList.remove('hidden');
+    document.getElementById('checked-in-site').textContent = openLog.attendance_sites ? openLog.attendance_sites.site_name : '—';
+    document.getElementById('checked-in-time').textContent = new Date(openLog.check_in_time).toLocaleString();
+  } else {
+    openLog = null;
+    statusEl.innerHTML = `<span class="status-pill pill-out">Not Checked In</span>`;
+    document.getElementById('checkin-card').classList.remove('hidden');
+    document.getElementById('checkout-card').classList.add('hidden');
+  }
+}
+
+document.getElementById('checkin-btn').addEventListener('click', async () => {
+  const msg = document.getElementById('checkin-msg');
+  msg.textContent = 'Getting your location...';
+  try {
+    const loc = await getLocation();
+    const siteId = document.getElementById('site-select').value;
+    const { error } = await sb.from('attendance_logs').insert({
+      employee_id: currentEmployee.id,
+      site_id: siteId,
+      check_in_time: new Date().toISOString(),
+      check_in_lat: loc.lat,
+      check_in_lng: loc.lng,
+      synced_at: new Date().toISOString()
+    });
+    if (error) throw error;
+    msg.textContent = 'Checked in successfully!';
+    await refreshStatus();
+    await loadMyLogs();
+    await loadAdminLogs();
+    await loadCurrentLocations();
+  } catch (e) {
+    msg.textContent = 'Error: ' + e.message;
+  }
+});
+
+document.getElementById('checkout-btn').addEventListener('click', async () => {
+  const msg = document.getElementById('checkout-msg');
+  msg.textContent = 'Getting your location...';
+  try {
+    const loc = await getLocation();
+    const { error } = await sb.from('attendance_logs')
+      .update({
+        check_out_time: new Date().toISOString(),
+        check_out_lat: loc.lat,
+        check_out_lng: loc.lng
+      })
+      .eq('id', openLog.id);
+    if (error) throw error;
+    msg.textContent = 'Checked out successfully!';
+    await refreshStatus();
+    await loadMyLogs();
+    await loadAdminLogs();
+    await loadCurrentLocations();
+  } catch (e) {
+    msg.textContent = 'Error: ' + e.message;
+  }
+});
+
+// ---------- MY LOGS ----------
+async function loadMyLogs() {
+  const { data: logs } = await sb
+    .from('attendance_logs')
+    .select('*, attendance_sites(site_name)')
+    .eq('employee_id', currentEmployee.id)
+    .order('check_in_time', { ascending: false })
+    .limit(10);
+
+  const body = document.getElementById('my-logs-body');
+  body.innerHTML = '';
+  (logs || []).forEach(l => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${l.attendance_sites ? l.attendance_sites.site_name : '—'}</td>
+      <td>${l.check_in_time ? new Date(l.check_in_time).toLocaleString() : '—'}</td>
+      <td>${l.check_out_time ? new Date(l.check_out_time).toLocaleString() : '—'}</td>
+      <td>${l.is_within_geofence === true ? '✅ Within 50m' : (l.is_within_geofence === false ? '⚠️ Outside 50m' : '—')}</td>
+    `;
+    body.appendChild(tr);
+  });
+}
+
+// ---------- ADMIN DASHBOARD ----------
+async function loadAdminFilters() {
+  const { data: employees } = await sb.from('attendance_employees').select('*').order('full_name');
+  const sel = document.getElementById('filter-employee');
+  sel.innerHTML = '<option value="">All employees</option>';
+  (employees || []).forEach(e => {
+    const opt = document.createElement('option');
+    opt.value = e.id;
+    opt.textContent = e.full_name;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener('change', loadAdminLogs);
+
+  const expSel = document.getElementById('export-employee');
+  expSel.innerHTML = '<option value="">All employees</option>';
+  (employees || []).forEach(e => {
+    const opt = document.createElement('option');
+    opt.value = e.id;
+    opt.textContent = e.full_name;
+    expSel.appendChild(opt);
+  });
+  setExportCycle(0);
+}
+
+async function loadAdminLogs() {
+  const filterId = document.getElementById('filter-employee').value;
+  let query = sb
+    .from('attendance_logs')
+    .select('*, attendance_employees(full_name), attendance_sites(site_name)')
+    .order('check_in_time', { ascending: false })
+    .limit(50);
+
+  if (filterId) query = query.eq('employee_id', filterId);
+
+  const { data: logs } = await query;
+  const body = document.getElementById('admin-logs-body');
+  body.innerHTML = '';
+  (logs || []).forEach(l => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${l.attendance_employees ? l.attendance_employees.full_name : '—'}</td>
+      <td>${l.attendance_sites ? l.attendance_sites.site_name : '—'}</td>
+      <td>${l.check_in_time ? new Date(l.check_in_time).toLocaleString() : '—'}</td>
+      <td>${l.check_out_time ? new Date(l.check_out_time).toLocaleString() : '—'}</td>
+      <td>${l.is_within_geofence === true ? '✅' : (l.is_within_geofence === false ? '⚠️' : '—')}</td>
+    `;
+    body.appendChild(tr);
+  });
+}
+
+// ---------- CURRENT LOCATIONS (text panel) ----------
+async function loadCurrentLocations() {
+  const container = document.getElementById('current-locations-list');
+  container.textContent = 'Loading...';
+
+  const { data: employees } = await sb.from('attendance_employees').select('*').order('full_name');
+
+  const { data: openLogs } = await sb
+    .from('attendance_logs')
+    .select('employee_id, check_in_time, attendance_sites(site_name)')
+    .is('check_out_time', null);
+
+  const openMap = {};
+  (openLogs || []).forEach(l => {
+    if (!openMap[l.employee_id] || new Date(l.check_in_time) > new Date(openMap[l.employee_id].check_in_time)) {
+      openMap[l.employee_id] = l;
+    }
+  });
+
+  container.innerHTML = '';
+  (employees || []).forEach(e => {
+    const row = document.createElement('div');
+    row.className = 'loc-row';
+    const open = openMap[e.id];
+    if (open) {
+      const siteName = open.attendance_sites ? open.attendance_sites.site_name : 'Unknown site';
+      const since = new Date(open.check_in_time).toLocaleString();
+      row.innerHTML = `<strong>${e.full_name}</strong> — <span class="loc-site">${siteName}</span> <span class="muted">(since ${since})</span>`;
+    } else {
+      row.innerHTML = `<strong>${e.full_name}</strong> — <span class="loc-out">Not checked in</span>`;
+    }
+    container.appendChild(row);
+  });
+
+  if (!employees || employees.length === 0) {
+    container.innerHTML = '<p class="muted">No employees found.</p>';
+  }
+}
+
+// ---------- EXPORT TO PDF ----------
+const PKT = 'Asia/Karachi';
+function pad2(n) { return String(n).padStart(2, '0'); }
+function ymdLocal(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+
+// Pay cycle = 21st of one month to 20th of the next. offset 0 = current cycle, -1 = previous.
+function cycleRange(offset) {
+  const t = new Date();
+  let m = t.getMonth();
+  if (t.getDate() < 21) m -= 1;
+  m += offset;
+  return { from: ymdLocal(new Date(t.getFullYear(), m, 21)), to: ymdLocal(new Date(t.getFullYear(), m + 1, 20)) };
+}
+function setExportCycle(offset) {
+  const r = cycleRange(offset);
+  document.getElementById('export-from').value = r.from;
+  document.getElementById('export-to').value = r.to;
+}
+document.getElementById('cycle-this').addEventListener('click', () => setExportCycle(0));
+document.getElementById('cycle-last').addEventListener('click', () => setExportCycle(-1));
+
+const fmtDate = (iso) => new Date(iso).toLocaleDateString('en-GB', { timeZone: PKT, day: '2-digit', month: '2-digit', year: 'numeric' });
+const fmtTime = (iso) => new Date(iso).toLocaleTimeString('en-GB', { timeZone: PKT, hour: '2-digit', minute: '2-digit', hour12: false });
+function fmtDuration(ms) {
+  const mins = Math.round(ms / 60000);
+  return Math.floor(mins / 60) + 'h ' + pad2(mins % 60) + 'm';
+}
+
+async function fetchLogsForExport(fromStr, toStr, employeeId) {
+  const startIso = new Date(fromStr + 'T00:00:00+05:00').toISOString();
+  const endIso = new Date(Date.parse(toStr + 'T00:00:00+05:00') + 86400000).toISOString();
+  const all = [];
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    let q = sb.from('attendance_logs')
+      .select('*, attendance_employees(full_name, role), attendance_sites(site_name)')
+      .gte('check_in_time', startIso)
+      .lt('check_in_time', endIso)
+      .order('check_in_time', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (employeeId) q = q.eq('employee_id', employeeId);
+    const { data, error } = await q;
+    if (error) throw error;
+    all.push(...(data || []));
+    if (!data || data.length < pageSize) break;
+  }
+  return all;
+}
+
+async function exportAttendancePdf() {
+  const msg = document.getElementById('export-msg');
+  const btn = document.getElementById('export-pdf-btn');
+  const fromStr = document.getElementById('export-from').value;
+  const toStr = document.getElementById('export-to').value;
+  const empSel = document.getElementById('export-employee');
+  const employeeId = empSel.value;
+  const employeeLabel = employeeId ? empSel.options[empSel.selectedIndex].textContent : 'All employees';
+
+  if (!fromStr || !toStr) { msg.textContent = 'Please choose both From and To dates.'; return; }
+  if (fromStr > toStr) { msg.textContent = 'The From date must be before the To date.'; return; }
+  if (!window.jspdf || !window.jspdf.jsPDF) { msg.textContent = 'The PDF tool could not load. Check the internet connection and refresh the page.'; return; }
+
+  btn.disabled = true;
+  msg.textContent = 'Preparing report...';
+  try {
+    const logs = await fetchLogsForExport(fromStr, toStr, employeeId);
+    if (logs.length === 0) { msg.textContent = 'No attendance records found for this period.'; return; }
+
+    // group by employee
+    const groups = {};
+    logs.forEach(l => {
+      const id = l.employee_id;
+      if (!groups[id]) groups[id] = { name: l.attendance_employees ? l.attendance_employees.full_name : 'Unknown', role: (l.attendance_employees && l.attendance_employees.role) || '', rows: [] };
+      groups[id].rows.push(l);
+    });
+    const list = Object.values(groups).sort((a, b) => a.name.localeCompare(b.name));
+    list.forEach(g => {
+      const days = new Set();
+      let ms = 0, outside = 0, open = 0;
+      g.rows.forEach(l => {
+        days.add(fmtDate(l.check_in_time));
+        if (l.check_out_time) ms += Math.max(0, new Date(l.check_out_time) - new Date(l.check_in_time)); else open++;
+        if (l.is_within_geofence === false) outside++;
+      });
+      g.days = days.size; g.ms = ms; g.outside = outside; g.open = open;
+    });
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const blue = [11, 94, 215];
+
+    // header band
+    doc.setFillColor(blue[0], blue[1], blue[2]);
+    doc.rect(0, 0, pageW, 24, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(17);
+    doc.text('Staff Attendance Report', 14, 15);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+    doc.text('Geo-tagged check-in / check-out', pageW - 14, 15, { align: 'right' });
+
+    doc.setTextColor(27, 39, 51);
+    doc.setFontSize(10);
+    const dFrom = fromStr.split('-').reverse().join('/');
+    const dTo = toStr.split('-').reverse().join('/');
+    doc.text('Period: ' + dFrom + '  to  ' + dTo, 14, 33);
+    doc.text('Employee: ' + employeeLabel, 14, 39);
+    const nowIso = new Date().toISOString();
+    doc.setTextColor(107, 122, 141); doc.setFontSize(8.5);
+    doc.text('Generated ' + fmtDate(nowIso) + ' ' + fmtTime(nowIso) + (currentEmployee ? ' by ' + currentEmployee.full_name : '') + '  |  Times shown in Pakistan time', 14, 45);
+
+    // summary table
+    doc.setTextColor(11, 94, 215); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text('Summary', 14, 54);
+    doc.autoTable({
+      startY: 57,
+      head: [['Employee', 'Role', 'Days present', 'Total hours', 'Outside site radius', 'No check-out']],
+      body: list.map(g => [g.name, g.role || '-', String(g.days), fmtDuration(g.ms), String(g.outside), String(g.open)]),
+      theme: 'grid',
+      styles: { fontSize: 9, cellPadding: 2 },
+      headStyles: { fillColor: blue, textColor: 255 },
+      columnStyles: { 2: { halign: 'center' }, 3: { halign: 'center' }, 4: { halign: 'center' }, 5: { halign: 'center' } },
+      margin: { left: 14, right: 14 }
+    });
+
+    // detail per employee
+    list.forEach(g => {
+      let y = doc.lastAutoTable.finalY + 12;
+      if (y > 255) { doc.addPage(); y = 20; }
+      doc.setTextColor(11, 94, 215); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+      doc.text(g.name + (g.role ? '  -  ' + g.role : ''), 14, y);
+      doc.setTextColor(107, 122, 141); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+      doc.text('Days present: ' + g.days + '   Total hours: ' + fmtDuration(g.ms) + '   Outside site radius: ' + g.outside + '   No check-out: ' + g.open, 14, y + 5);
+      doc.autoTable({
+        startY: y + 8,
+        head: [['Date', 'Site', 'Check-in', 'Check-out', 'Hours', 'Site radius']],
+        body: g.rows.map(l => [
+          fmtDate(l.check_in_time),
+          l.attendance_sites ? l.attendance_sites.site_name : '-',
+          fmtTime(l.check_in_time),
+          l.check_out_time ? fmtTime(l.check_out_time) : 'No check-out',
+          l.check_out_time ? fmtDuration(new Date(l.check_out_time) - new Date(l.check_in_time)) : '-',
+          l.is_within_geofence === true ? 'Within' : (l.is_within_geofence === false ? 'Outside' : '-')
+        ]),
+        theme: 'striped',
+        styles: { fontSize: 8.5, cellPadding: 1.8 },
+        headStyles: { fillColor: [60, 90, 150], textColor: 255 },
+        columnStyles: { 0: { cellWidth: 24 }, 2: { halign: 'center', cellWidth: 22 }, 3: { halign: 'center', cellWidth: 26 }, 4: { halign: 'center', cellWidth: 20 }, 5: { halign: 'center', cellWidth: 24 } },
+        didParseCell: (data) => {
+          if (data.section === 'body') {
+            if (data.cell.raw === 'Outside' || data.cell.raw === 'No check-out') data.cell.styles.textColor = [192, 57, 43];
+          }
+        },
+        margin: { left: 14, right: 14 }
+      });
+    });
+
+    // page numbers
+    const pages = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pages; i++) {
+      doc.setPage(i);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(107, 122, 141);
+      doc.text('Page ' + i + ' of ' + pages, pageW - 14, 290, { align: 'right' });
+    }
+
+    const safeName = employeeLabel.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    doc.save('Attendance_' + fromStr + '_to_' + toStr + '_' + safeName + '.pdf');
+    msg.textContent = 'Downloaded (' + logs.length + ' records).';
+  } catch (e) {
+    msg.textContent = 'Could not create the report: ' + (e && e.message ? e.message : e);
+  } finally {
+    btn.disabled = false;
+  }
+}
+document.getElementById('export-pdf-btn').addEventListener('click', exportAttendancePdf);
+
+// ---------- TABS ----------
+document.getElementById('tab-checkin').addEventListener('click', () => {
+  document.getElementById('tab-checkin').classList.add('active');
+  document.getElementById('tab-admin').classList.remove('active');
+  document.getElementById('view-checkin').classList.remove('hidden');
+  document.getElementById('view-admin').classList.add('hidden');
+});
+document.getElementById('tab-admin').addEventListener('click', () => {
+  document.getElementById('tab-admin').classList.add('active');
+  document.getElementById('tab-checkin').classList.remove('active');
+  document.getElementById('view-admin').classList.remove('hidden');
+  document.getElementById('view-checkin').classList.add('hidden');
+  loadAdminLogs();
+  loadCurrentLocations();
+});
+
+// ---------- CHECK EXISTING SESSION ON LOAD ----------
+(async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) {
+    currentUser = session.user;
+    await afterLogin();
+  }
+})();
+</script>
+
+</body>
+</html>
